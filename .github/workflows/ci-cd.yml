@@ -1,0 +1,253 @@
+# ──────────────────────────────────────────────────────────────────
+# GitHub Actions — CI/CD Pipeline
+# INY1105 Infraestructura de Aplicaciones I — Duoc UC
+#
+# INSTRUCCIÓN PARA EL ESTUDIANTE:
+#   Este archivo es la plantilla base del pipeline (Encargo 5).
+#   Debes configurar los Secrets en tu repositorio GitHub:
+#
+#   Settings → Secrets and variables → Actions → New repository secret
+#
+#   Secrets requeridos:
+#     DOCKERHUB_USERNAME     → tu usuario de Docker Hub
+#     DOCKERHUB_TOKEN        → Access Token de Docker Hub
+#     AWS_ACCESS_KEY_ID      → credencial IAM con permisos ECS
+#     AWS_SECRET_ACCESS_KEY  → credencial IAM con permisos ECS
+#     AWS_REGION             → región AWS (ej: us-east-1)
+#     ECS_CLUSTER            → nombre del cluster ECS (ej: netmonitor)
+#     ECS_SERVICE_APP        → nombre del service ECS de la app
+#     ECS_SERVICE_NGINX      → nombre del service ECS de NGINX
+#     EC2_PUBLIC_IP          → IP pública de la instancia EC2
+# ──────────────────────────────────────────────────────────────────
+
+name: Net Monitor — CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  APP_IMAGE:   ${{ secrets.DOCKERHUB_USERNAME }}/netmonitor-app
+  NGINX_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/netmonitor-nginx
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────────
+  # JOB 1 — Build & Push imágenes a Docker Hub
+  # ────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: "CI — Build & Push"
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Step 1: Checkout ──────────────────────────────────────
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      # ── Step 2: Login a Docker Hub ────────────────────────────
+      - name: Login a Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ── Step 3: Configurar Docker Buildx ─────────────────────
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Step 4: Build imagen app ──────────────────────────────
+      - name: Build imagen — netmonitor-app
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.APP_IMAGE }}:latest
+            ${{ env.APP_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      # ── Step 5: Build imagen NGINX ────────────────────────────
+      - name: Build imagen — netmonitor-nginx
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./nginx/Dockerfile
+          push: true
+          tags: |
+            ${{ env.NGINX_IMAGE }}:latest
+            ${{ env.NGINX_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+
+  # ────────────────────────────────────────────────────────────────
+  # JOB 2 — Pruebas de infraestructura (★ Evaluadas)
+  # Se ejecuta DESPUÉS de que las imágenes estén en Docker Hub.
+  # Verifica que la aplicación desplegada en EC2/ECS responde.
+  # ────────────────────────────────────────────────────────────────
+  infra-tests:
+    name: "★ Pruebas de Infraestructura"
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    # Solo ejecutar en push a main (no en PRs sin deploy)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      # ── Step 6 ★: Health Check HTTP ───────────────────────────
+      - name: "★ Health Check HTTP — /health endpoint"
+        run: |
+          echo "=========================================="
+          echo " PRUEBA 1: Health Check HTTP"
+          echo " Target : http://${{ secrets.EC2_PUBLIC_IP }}/health"
+          echo "=========================================="
+
+          # Reintentar hasta 5 veces con espera de 10s entre intentos
+          for attempt in 1 2 3 4 5; do
+            echo "Intento $attempt/5..."
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              http://${{ secrets.EC2_PUBLIC_IP }}/health)
+
+            echo "Código HTTP recibido: $HTTP_CODE"
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Health check PASADO — HTTP 200 OK"
+              exit 0
+            fi
+            echo "⏳ No disponible aún, esperando 10s..."
+            sleep 10
+          done
+
+          echo "❌ Health check FALLIDO — la app no responde con HTTP 200"
+          exit 1
+
+      # ── Step 7 ★: Latencia de red ─────────────────────────────
+      - name: "★ Prueba de Latencia — tiempo de respuesta HTTP"
+        run: |
+          echo "=========================================="
+          echo " PRUEBA 2: Latencia de red"
+          echo " Target : http://${{ secrets.EC2_PUBLIC_IP }}/"
+          echo "=========================================="
+
+          LATENCIA=$(curl -s \
+            -o /dev/null \
+            -w "%{time_total}" \
+            --max-time 15 \
+            http://${{ secrets.EC2_PUBLIC_IP }}/)
+
+          echo "Tiempo de respuesta total: ${LATENCIA}s"
+
+          # Verificar que la latencia sea menor a 5 segundos
+          LATENCIA_MS=$(echo "$LATENCIA * 1000" | bc | cut -d'.' -f1)
+          echo "Latencia en ms: ${LATENCIA_MS}ms"
+
+          if [ "$LATENCIA_MS" -lt 5000 ]; then
+            echo "✅ Latencia ACEPTABLE — ${LATENCIA_MS}ms (umbral: 5000ms)"
+          else
+            echo "⚠️  Latencia ALTA — ${LATENCIA_MS}ms supera el umbral de 5000ms"
+            # No falla el pipeline, solo advierte
+          fi
+
+          # Desglose detallado de tiempos de curl
+          echo ""
+          echo "── Desglose de tiempos ──"
+          curl -s -o /dev/null \
+            -w "  DNS lookup     : %{time_namelookup}s\n  TCP connect    : %{time_connect}s\n  Transferencia  : %{time_starttransfer}s\n  Total          : %{time_total}s\n" \
+            --max-time 15 \
+            http://${{ secrets.EC2_PUBLIC_IP }}/
+
+      # ── Step 8 ★: Validación de puertos ───────────────────────
+      - name: "★ Validación de Puerto 80 accesible"
+        run: |
+          echo "=========================================="
+          echo " PRUEBA 3: Validación de puerto abierto"
+          echo " Target : ${{ secrets.EC2_PUBLIC_IP }}:80"
+          echo "=========================================="
+
+          # Intentar conexión TCP al puerto 80
+          if timeout 10 bash -c "echo > /dev/tcp/${{ secrets.EC2_PUBLIC_IP }}/80" 2>/dev/null; then
+            echo "✅ Puerto 80 ABIERTO y accesible"
+          else
+            echo "❌ Puerto 80 NO accesible — revisar Security Group o servicio NGINX"
+            exit 1
+          fi
+
+          # También verificar que el endpoint /api/metrics responde
+          echo ""
+          echo "── Verificando endpoint /api/metrics ──"
+          METRICS_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            http://${{ secrets.EC2_PUBLIC_IP }}/api/metrics)
+          echo "Código HTTP /api/metrics: $METRICS_CODE"
+
+          if [ "$METRICS_CODE" = "200" ]; then
+            echo "✅ Endpoint /api/metrics responde correctamente"
+          else
+            echo "⚠️  Endpoint /api/metrics retornó HTTP $METRICS_CODE"
+          fi
+
+
+  # ────────────────────────────────────────────────────────────────
+  # JOB 3 — Deploy a AWS ECS (CD)
+  # Se ejecuta DESPUÉS de que las pruebas de infraestructura pasen.
+  # ────────────────────────────────────────────────────────────────
+  deploy-ecs:
+    name: "CD — Deploy a AWS ECS"
+    runs-on: ubuntu-latest
+    needs: infra-tests
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      # ── Step 9: Configurar credenciales AWS ───────────────────
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      # ── Step 10: Deploy service app ───────────────────────────
+      - name: "Deploy — forzar nuevo despliegue netmonitor-app"
+        run: |
+          echo "Iniciando deploy del service: ${{ secrets.ECS_SERVICE_APP }}"
+          aws ecs update-service \
+            --cluster  ${{ secrets.ECS_CLUSTER }} \
+            --service  ${{ secrets.ECS_SERVICE_APP }} \
+            --force-new-deployment \
+            --query "service.{status:status, deployments:length(deployments)}" \
+            --output table
+          echo "✅ Deploy de app iniciado en ECS"
+
+      # ── Step 11: Deploy service nginx ────────────────────────
+      - name: "Deploy — forzar nuevo despliegue netmonitor-nginx"
+        run: |
+          echo "Iniciando deploy del service: ${{ secrets.ECS_SERVICE_NGINX }}"
+          aws ecs update-service \
+            --cluster  ${{ secrets.ECS_CLUSTER }} \
+            --service  ${{ secrets.ECS_SERVICE_NGINX }} \
+            --force-new-deployment \
+            --query "service.{status:status, deployments:length(deployments)}" \
+            --output table
+          echo "✅ Deploy de nginx iniciado en ECS"
+
+      # ── Step 12: Verificar estabilidad del servicio ───────────
+      - name: "Verificar estabilidad del cluster ECS"
+        run: |
+          echo "Esperando que el servicio alcance estado estable..."
+          aws ecs wait services-stable \
+            --cluster ${{ secrets.ECS_CLUSTER }} \
+            --services ${{ secrets.ECS_SERVICE_APP }} ${{ secrets.ECS_SERVICE_NGINX }}
+          echo "✅ Servicios ECS estables y corriendo"
+
+          # Mostrar estado final
+          echo ""
+          echo "── Estado final del cluster ──"
+          aws ecs describe-services \
+            --cluster  ${{ secrets.ECS_CLUSTER }} \
+            --services ${{ secrets.ECS_SERVICE_APP }} ${{ secrets.ECS_SERVICE_NGINX }} \
+            --query "services[].{Nombre:serviceName, Estado:status, Corriendo:runningCount, Deseado:desiredCount}" \
+            --output table

@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Net Monitor — INY1105</title>
+  <style>
+    /* ── Reset & Base ───────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --bg2:       #161b22;
+      --bg3:       #21262d;
+      --border:    #30363d;
+      --text:      #c9d1d9;
+      --text2:     #8b949e;
+      --blue:      #0F9ED5;
+      --blue2:     #156082;
+      --green:     #3fb950;
+      --green2:    #196B24;
+      --orange:    #E97132;
+      --red:       #f85149;
+      --yellow:    #d29922;
+      --navy:      #0E2841;
+      --radius:    8px;
+      --font:      'Segoe UI', system-ui, -apple-system, sans-serif;
+      --mono:      'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      background: var(--navy);
+      border-bottom: 2px solid var(--blue2);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 32px; height: 32px;
+      background: var(--blue);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+    h1 { font-size: 18px; font-weight: 600; color: #fff; }
+    h1 span { color: var(--blue); font-weight: 400; font-size: 14px; margin-left: 8px; }
+    .header-right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--text2); }
+    #status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      display: inline-block;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+    #last-update { font-family: var(--mono); font-size: 12px; }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+    .grid-top {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .grid-main {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .grid-bottom {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 1100px) {
+      .grid-main   { grid-template-columns: 1fr; }
+      .grid-bottom { grid-template-columns: 1fr; }
+    }
+
+    /* ── Cards ──────────────────────────────────────────────── */
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .card-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-header h2 {
+      font-size: 14px; font-weight: 600;
+      color: var(--text); letter-spacing: 0.3px;
+    }
+    .card-icon { font-size: 16px; }
+
+    /* ── Stat cards (top row) ───────────────────────────────── */
+    .stat-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .stat-label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.8px; }
+    .stat-value { font-size: 26px; font-weight: 700; font-family: var(--mono); color: var(--blue); }
+    .stat-sub   { font-size: 12px; color: var(--text2); font-family: var(--mono); }
+    .stat-card.green .stat-value { color: var(--green); }
+    .stat-card.orange .stat-value { color: var(--orange); }
+    .stat-card.yellow .stat-value { color: var(--yellow); }
+
+    /* ── Progress bar ───────────────────────────────────────── */
+    .progress-wrap { margin-top: 8px; }
+    .progress-bar {
+      height: 6px;
+      background: var(--bg3);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--blue);
+      transition: width 0.5s ease;
+    }
+    .progress-fill.warn  { background: var(--yellow); }
+    .progress-fill.danger{ background: var(--red); }
+
+    /* ── Tables ─────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--bg3); }
+
+    /* ── Badges ─────────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--font);
+    }
+    .badge-up     { background: rgba(63,185,80,.15); color: var(--green); }
+    .badge-down   { background: rgba(248,81,73,.15);  color: var(--red); }
+    .badge-ok     { background: rgba(15,158,213,.15); color: var(--blue); }
+    .badge-warn   { background: rgba(210,153,34,.15); color: var(--yellow); }
+    .badge-tcp    { background: rgba(233,113,50,.15); color: var(--orange); }
+
+    /* ── Ping cards ─────────────────────────────────────────── */
+    .ping-grid { display: flex; flex-direction: column; gap: 12px; }
+    .ping-item {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg3);
+      border-radius: 6px;
+      padding: 10px 14px;
+    }
+    .ping-host { font-family: var(--mono); font-size: 13px; color: var(--text); }
+    .ping-ms {
+      font-family: var(--mono); font-size: 20px; font-weight: 700;
+    }
+    .ping-ms.good   { color: var(--green); }
+    .ping-ms.medium { color: var(--yellow); }
+    .ping-ms.bad    { color: var(--red); }
+    .ping-detail { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+    /* ── TCP states ─────────────────────────────────────────── */
+    .tcp-list { display: flex; flex-direction: column; gap: 8px; }
+    .tcp-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .tcp-row:last-child { border-bottom: none; }
+    .tcp-state { font-family: var(--mono); font-size: 13px; }
+    .tcp-count {
+      font-family: var(--mono); font-size: 16px; font-weight: 700;
+      color: var(--orange);
+    }
+    .tcp-bar-wrap { flex: 1; margin: 0 12px; }
+    .tcp-bar {
+      height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden;
+    }
+    .tcp-bar-fill {
+      height: 100%; border-radius: 2px; background: var(--orange);
+      transition: width 0.5s ease;
+    }
+
+    /* ── Log tail ───────────────────────────────────────────── */
+    .log-box {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--green);
+      height: 180px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+    .log-line { display: block; }
+    .log-line .ts  { color: var(--text2); }
+    .log-line .lvl { color: var(--blue); }
+
+    /* ── Skeleton loader ────────────────────────────────────── */
+    .skeleton {
+      background: linear-gradient(90deg, var(--bg3) 25%, var(--bg2) 50%, var(--bg3) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 4px;
+      height: 16px;
+    }
+    @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 20px;
+      color: var(--text2);
+      font-size: 12px;
+      border-top: 1px solid var(--border);
+      margin-top: 24px;
+    }
+    footer span { color: var(--blue); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="logo">🌐</div>
+    <h1>Net Monitor <span>INY1105 — Infraestructura de Aplicaciones I</span></h1>
+  </div>
+  <div class="header-right">
+    <span id="status-dot"></span>
+    <span id="status-text">Conectado</span>
+    &nbsp;|&nbsp;
+    Actualización cada 5s &nbsp;|&nbsp;
+    <span id="last-update">--:--:--</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- Fila superior: KPIs -->
+  <div class="grid-top">
+    <div class="stat-card">
+      <span class="stat-label">Hostname</span>
+      <span class="stat-value" id="kpi-hostname" style="font-size:18px">—</span>
+      <span class="stat-sub" id="kpi-platform">—</span>
+    </div>
+    <div class="stat-card green">
+      <span class="stat-label">Interfaces activas</span>
+      <span class="stat-value" id="kpi-ifaces">—</span>
+      <span class="stat-sub" id="kpi-ifaces-sub">—</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Conexiones TCP</span>
+      <span class="stat-value" id="kpi-tcp">—</span>
+      <span class="stat-sub" id="kpi-tcp-sub">—</span>
+    </div>
+    <div class="stat-card orange">
+      <span class="stat-label">CPU</span>
+      <span class="stat-value" id="kpi-cpu">—</span>
+      <span class="stat-sub">
+        <div class="progress-wrap">
+          <div class="progress-bar"><div class="progress-fill" id="cpu-bar" style="width:0%"></div></div>
+        </div>
+      </span>
+    </div>
+    <div class="stat-card yellow">
+      <span class="stat-label">Memoria RAM</span>
+      <span class="stat-value" id="kpi-mem">—</span>
+      <span class="stat-sub" id="kpi-mem-sub">—</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">App Uptime</span>
+      <span class="stat-value" id="kpi-uptime" style="font-size:16px">—</span>
+      <span class="stat-sub" id="kpi-sys-uptime">Sistema: —</span>
+    </div>
+  </div>
+
+  <!-- Fila central: Interfaces + Ping -->
+  <div class="grid-main">
+
+    <!-- Interfaces de red -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🔌</span>
+        <h2>Interfaces de Red</h2>
+      </div>
+      <div style="overflow-x:auto">
+        <table id="iface-table">
+          <thead>
+            <tr>
+              <th>Interfaz</th>
+              <th>Estado</th>
+              <th>IPv4</th>
+              <th>Enviado</th>
+              <th>Recibido</th>
+              <th>Errores</th>
+            </tr>
+          </thead>
+          <tbody id="iface-tbody">
+            <tr><td colspan="6"><div class="skeleton"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Latencia / Ping -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📡</span>
+        <h2>Latencia DNS — Servidores Externos</h2>
+      </div>
+      <div class="ping-grid" id="ping-grid">
+        <div class="skeleton" style="height:60px"></div>
+        <div class="skeleton" style="height:60px"></div>
+        <div class="skeleton" style="height:60px"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Fila inferior: TCP + Logs -->
+  <div class="grid-bottom">
+
+    <!-- Estados TCP -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">🔗</span>
+        <h2>Conexiones TCP por Estado</h2>
+      </div>
+      <div id="tcp-total" style="font-size:13px; color:var(--text2); margin-bottom:12px;">Total: —</div>
+      <div class="tcp-list" id="tcp-list">
+        <div class="skeleton"></div>
+      </div>
+    </div>
+
+    <!-- Tráfico por interfaz -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📊</span>
+        <h2>Tráfico Acumulado por Interfaz</h2>
+      </div>
+      <div style="overflow-x:auto">
+        <table id="traffic-table">
+          <thead>
+            <tr>
+              <th>Interfaz</th>
+              <th>Paquetes TX</th>
+              <th>Paquetes RX</th>
+              <th>Drops</th>
+            </tr>
+          </thead>
+          <tbody id="traffic-tbody">
+            <tr><td colspan="4"><div class="skeleton"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Log en tiempo real -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-icon">📋</span>
+        <h2>Log de Actividad</h2>
+      </div>
+      <div class="log-box" id="log-box">
+        <span class="log-line"><span class="ts">[init]</span> Esperando datos...</span>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  Net Monitor App &nbsp;|&nbsp; <span>INY1105 Infraestructura de Aplicaciones I</span>
+  &nbsp;|&nbsp; Duoc UC — Escuela de Informática y Telecomunicaciones
+  &nbsp;|&nbsp; Provisto por el docente — no modificar
+</footer>
+
+<script>
+  // ── Helpers ──────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+
+  function fmtBytes(b) {
+    if (b === null || b === undefined) return '—';
+    const units = ['B','KB','MB','GB','TB'];
+    let i = 0;
+    while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+    return `${b.toFixed(1)} ${units[i]}`;
+  }
+
+  function pingClass(ms) {
+    if (ms === null) return 'bad';
+    if (ms < 30)  return 'good';
+    if (ms < 100) return 'medium';
+    return 'bad';
+  }
+
+  function addLog(msg) {
+    const box = $('log-box');
+    const now = new Date().toLocaleTimeString('es-CL');
+    const line = document.createElement('span');
+    line.className = 'log-line';
+    line.innerHTML = `<span class="ts">[${now}]</span> <span class="lvl">INFO</span> ${msg}`;
+    box.appendChild(line);
+    box.appendChild(document.createElement('br'));
+    // mantener solo los últimos 40 logs
+    while (box.children.length > 80) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function setStatus(ok) {
+    $('status-dot').style.background  = ok ? 'var(--green)' : 'var(--red)';
+    $('status-dot').style.boxShadow   = ok ? '0 0 6px var(--green)' : '0 0 6px var(--red)';
+    $('status-text').textContent       = ok ? 'Conectado' : 'Sin conexión';
+  }
+
+  // ── Renderizado ───────────────────────────────────────────────
+  function renderKPIs(d) {
+    $('kpi-hostname').textContent  = d.hostname;
+    $('kpi-platform').textContent  = d.platform;
+    $('kpi-uptime').textContent    = d.app_uptime;
+    $('kpi-sys-uptime').textContent = `Sistema: ${d.system_uptime}`;
+
+    const up = d.interfaces.filter(i => i.is_up).length;
+    $('kpi-ifaces').textContent    = up;
+    $('kpi-ifaces-sub').textContent = `de ${d.interfaces.length} interfaces`;
+
+    $('kpi-tcp').textContent       = d.tcp_connections.total;
+    $('kpi-tcp-sub').textContent   = d.tcp_connections.error || 'conexiones activas';
+
+    const cpu = d.resources.cpu_percent;
+    $('kpi-cpu').textContent       = `${cpu}%`;
+    const cpuBar = $('cpu-bar');
+    cpuBar.style.width             = `${cpu}%`;
+    cpuBar.className               = `progress-fill${cpu > 80 ? ' danger' : cpu > 60 ? ' warn' : ''}`;
+
+    const memPct = d.resources.mem_percent;
+    $('kpi-mem').textContent       = `${memPct}%`;
+    $('kpi-mem-sub').textContent   = `${d.resources.mem_used_mb} / ${d.resources.mem_total_mb} MB`;
+
+    $('last-update').textContent   = new Date().toLocaleTimeString('es-CL');
+  }
+
+  function renderInterfaces(ifaces) {
+    const tbody = $('iface-tbody');
+    tbody.innerHTML = '';
+    ifaces.forEach(i => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${i.name}</td>
+        <td><span class="badge ${i.is_up ? 'badge-up' : 'badge-down'}">${i.is_up ? 'UP' : 'DOWN'}</span></td>
+        <td>${i.ipv4 || '—'}</td>
+        <td>${fmtBytes(i.bytes_sent)}</td>
+        <td>${fmtBytes(i.bytes_recv)}</td>
+        <td style="color:${(i.errors_in + i.errors_out) > 0 ? 'var(--red)' : 'var(--text2)'}">
+          ${i.errors_in + i.errors_out}
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderPing(pings) {
+    const grid = $('ping-grid');
+    grid.innerHTML = '';
+    pings.forEach(p => {
+      const avg = p.avg_ms;
+      const cls = pingClass(avg);
+      const item = document.createElement('div');
+      item.className = 'ping-item';
+      item.innerHTML = `
+        <div>
+          <div class="ping-host">${p.host}</div>
+          <div class="ping-detail">
+            min: ${p.min_ms !== null ? p.min_ms+'ms' : '—'} &nbsp;|&nbsp;
+            max: ${p.max_ms !== null ? p.max_ms+'ms' : '—'}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="ping-ms ${cls}">${avg !== null ? avg.toFixed(1)+'ms' : '—'}</div>
+          <div class="ping-detail">${p.reachable ? '✓ alcanzable' : '✗ sin respuesta'}</div>
+        </div>`;
+      grid.appendChild(item);
+    });
+  }
+
+  function renderTCP(tcp) {
+    $('tcp-total').textContent = `Total conexiones: ${tcp.total}`;
+    const list = $('tcp-list');
+    list.innerHTML = '';
+    const max = Math.max(...Object.values(tcp.summary), 1);
+    Object.entries(tcp.summary).forEach(([state, count]) => {
+      const row = document.createElement('div');
+      row.className = 'tcp-row';
+      row.innerHTML = `
+        <span class="tcp-state">${state}</span>
+        <div class="tcp-bar-wrap">
+          <div class="tcp-bar">
+            <div class="tcp-bar-fill" style="width:${(count/max*100).toFixed(1)}%"></div>
+          </div>
+        </div>
+        <span class="tcp-count">${count}</span>`;
+      list.appendChild(row);
+    });
+    if (!Object.keys(tcp.summary).length) {
+      list.innerHTML = '<div style="color:var(--text2);font-size:13px">Sin conexiones TCP detectadas</div>';
+    }
+  }
+
+  function renderTraffic(ifaces) {
+    const tbody = $('traffic-tbody');
+    tbody.innerHTML = '';
+    ifaces.filter(i => i.is_up).forEach(i => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${i.name}</td>
+        <td>${i.packets_sent.toLocaleString()}</td>
+        <td>${i.packets_recv.toLocaleString()}</td>
+        <td style="color:${(i.drop_in + i.drop_out) > 0 ? 'var(--yellow)' : 'var(--text2)'}">
+          ${i.drop_in + i.drop_out}
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── Fetch principal ───────────────────────────────────────────
+  async function fetchMetrics() {
+    try {
+      const res  = await fetch('/api/metrics');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      renderKPIs(data);
+      renderInterfaces(data.interfaces);
+      renderPing(data.ping);
+      renderTCP(data.tcp_connections);
+      renderTraffic(data.interfaces);
+      setStatus(true);
+      addLog(`Métricas actualizadas — ${data.interfaces.filter(i=>i.is_up).length} ifaces UP | TCP: ${data.tcp_connections.total} | CPU: ${data.resources.cpu_percent}%`);
+
+    } catch (err) {
+      setStatus(false);
+      addLog(`ERROR al obtener métricas: ${err.message}`);
+    }
+  }
+
+  // ── Init ─────────────────────────────────────────────────────
+  fetchMetrics();
+  setInterval(fetchMetrics, 5000);
+</script>
+
+</body>
+</html>
