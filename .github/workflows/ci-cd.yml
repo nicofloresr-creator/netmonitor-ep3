@@ -153,17 +153,8 @@ jobs:
           echo "✅ Deploy de nginx iniciado en ECS"
 
       # ── Step 12: Verificar estabilidad del servicio ───────────
-      - name: "Verificar estabilidad del cluster ECS"
+      - name: "Mostrar estado final"
         run: |
-          echo "Esperando que el servicio alcance estado estable..."
-          aws ecs wait services-stable \
-            --cluster ${{ secrets.ECS_CLUSTER }} \
-            --services ${{ secrets.ECS_SERVICE_APP }} ${{ secrets.ECS_SERVICE_NGINX }}
-          echo "✅ Servicios ECS estables y corriendo"
-
-          # Mostrar estado final
-          echo ""
-          echo "── Estado final del cluster ──"
           aws ecs describe-services \
             --cluster  ${{ secrets.ECS_CLUSTER }} \
             --services ${{ secrets.ECS_SERVICE_APP }} ${{ secrets.ECS_SERVICE_NGINX }} \
